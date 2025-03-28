@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Air Quality Monitor</title>
+    <style>
+        :root {
+            --bg-color: #f0f0f0;
+            --text-color: #2c3e50;
+            --accent: #3498db;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #2c3e50;
+            --text-color: #ecf0f1;
+            --accent: #2ecc71;
+        }
+
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .data-box { 
+            padding: 20px; 
+            background: var(--bg-color);
+            border: 1px solid var(--text-color);
+            border-radius: 10px; 
+            margin: 20px 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .value { 
+            font-size: 2em;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--text-color);
+        }
+
+        th {
+            background: var(--accent);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Air Quality Monitoring</h1>
+    
+    <div class="controls">
+        <button onclick="toggleTheme()">Toggle Dark Mode</button>
+        <button onclick="clearHistory()">Clear History</button>
+        <button onclick="downloadCSV()">Export CSV</button>
+    </div>
+
+    <div class="data-box">
+        <h2>Current Air Quality</h2>
+        <span class="value" id="aqi-value">0</span>
+        <span class="timestamp" id="last-updated">Last updated: N/A</span>
+    </div>
+
+    <div class="data-box">
+        <h2>Historical Data (Newest First)</h2>
+        <table id="history-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Air Quality Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Data populated by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Theme handling
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const savedTheme = localStorage.getItem('theme') || (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', savedTheme);
+
+        function toggleTheme() {
+            const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' 
+                ? 'light' 
+                : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        // Data handling
+        let historicalCache = [];
+
+        function updateData() {
+            fetch('/getdata')
+                .then(response => response.json())
+                .then(data => {
+                    // Update current value
+                    document.getElementById('aqi-value').textContent = data.current.air_quality;
+                    document.getElementById('last-updated').textContent = 
+                        `Last updated: ${data.current.timestamp}`;
+
+                    // Update historical data
+                    const newEntries = data.history.filter(entry => 
+                        !historicalCache.some(cached => cached.timestamp === entry.timestamp)
+                    );
+                    
+                    if(newEntries.length > 0) {
+                        historicalCache = [...historicalCache, ...newEntries];
+                        updateHistoryTable();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('aqi-value').textContent = 'Error';
+                });
+        }
+
+        function updateHistoryTable() {
+            const tbody = document.querySelector('#history-table tbody');
+            tbody.innerHTML = historicalCache
+                .slice()
+                .reverse()
+                .map(entry => `
+                    <tr>
+                        <td>${entry.timestamp}</td>
+                        <td>${entry.value}</td>
+                    </tr>
+                `).join('');
+        }
+
+        function clearHistory() {
+            if(confirm('Clear all historical data?')) {
+                fetch('/cleardata', { method: 'POST' })
+                    .then(() => {
+                        historicalCache = [];
+                        updateHistoryTable();
+                    });
+            }
+        }
+
+        function downloadCSV() {
+            const csvContent = "data:text/csv;charset=utf-8," 
+                + "Timestamp,Air Quality\n"
+                + historicalCache.map(entry => 
+                    `${entry.timestamp},${entry.value}`
+                ).join('\n');
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "air_quality_history.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Initial setup
+        setInterval(updateData, 2000);
+        document.addEventListener('DOMContentLoaded', updateData);
+    </script>
+</body>
+</html>
