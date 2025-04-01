@@ -7,7 +7,11 @@ app = Flask(__name__)
 CORS(app)
 
 sensor_data = {
-    'air_quality': 0,
+    'temperature': 0.0,
+    'pm25': 0.0,
+    'pm10': 0.0,
+    'humidity': 0.0,
+    'predicted_pm25': 0.0,
     'timestamp': 'N/A'
 }
 
@@ -25,15 +29,26 @@ def handle_data():
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         with lock:
-            sensor_data['air_quality'] = data.get('air_quality', 0)
+            # Use .get() with defaults to prevent KeyError
+            sensor_data['temperature'] = data.get('temperature', 0.0)
+            sensor_data['pm25'] = data.get('pm25', 0.0)
+            sensor_data['pm10'] = data.get('pm10', 0.0)
+            sensor_data['humidity'] = data.get('humidity', 0.0)
+            sensor_data['predicted_pm25'] = data.get('predicted_pm25', 0.0)
             sensor_data['timestamp'] = timestamp
+            
             historical_data.append({
-                'value': data.get('air_quality', 0),
+                'temperature': sensor_data['temperature'],
+                'pm25': sensor_data['pm25'],
+                'pm10': sensor_data['pm10'],
+                'humidity': sensor_data['humidity'],
+                'predicted_pm25': sensor_data['predicted_pm25'],
                 'timestamp': timestamp
             })
         
         return jsonify(success=True), 200
     except Exception as e:
+        print(f"Error: {str(e)}")  # Add debug print
         return jsonify(error=str(e)), 400
 
 @app.route('/getdata')

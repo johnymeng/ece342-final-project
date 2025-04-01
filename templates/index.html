@@ -2,19 +2,20 @@
 <html>
 <head>
     <title>Air Quality Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-color: #f0f0f0;
             --text-color: #2c3e50;
             --accent: #3498db;
+            --secondary: #9b59b6;
         }
-
         [data-theme="dark"] {
             --bg-color: #2c3e50;
             --text-color: #ecf0f1;
             --accent: #2ecc71;
+            --secondary: #8e44ad;
         }
-
         body { 
             font-family: Arial, sans-serif; 
             padding: 20px;
@@ -24,7 +25,6 @@
             color: var(--text-color);
             transition: all 0.3s ease;
         }
-
         .data-box { 
             padding: 20px; 
             background: var(--bg-color);
@@ -33,17 +33,14 @@
             margin: 20px 0;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-
         .value { 
             font-size: 2em;
             color: var(--accent);
             font-weight: bold;
         }
-
         .controls {
             margin: 20px 0;
         }
-
         button {
             padding: 8px 16px;
             background: var(--accent);
@@ -53,51 +50,72 @@
             cursor: pointer;
             transition: all 0.2s ease;
         }
-
         button:hover {
             opacity: 0.9;
         }
-
         table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 20px;
         }
-
         th, td {
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid var(--text-color);
         }
-
         th {
             background: var(--accent);
             color: white;
+        }
+        .current-values {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 15px;
+        }
+        .current-values div {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .label {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
         }
     </style>
 </head>
 <body>
     <h1>Air Quality Monitoring</h1>
-    
     <div class="controls">
         <button onclick="toggleTheme()">Toggle Dark Mode</button>
         <button onclick="clearHistory()">Clear History</button>
         <button onclick="downloadCSV()">Export CSV</button>
     </div>
-
     <div class="data-box">
         <h2>Current Air Quality</h2>
-        <span class="value" id="aqi-value">0</span>
+        <div class="current-values">
+            <div>
+                <span class="label">PM2.5:</span>
+                <span class="value" id="pm25-value">0.0</span>
+            </div>
+            <div>
+                <span class="label">Predicted PM2.5:</span>
+                <span class="value" id="predicted-pm25-value">0.0</span>
+            </div>
+        </div>
         <span class="timestamp" id="last-updated">Last updated: N/A</span>
     </div>
-
     <div class="data-box">
         <h2>Historical Data (Newest First)</h2>
         <table id="history-table">
             <thead>
                 <tr>
                     <th>Timestamp</th>
-                    <th>Air Quality Value</th>
+                    <th>PM2.5</th>
+                    <th>Predicted PM2.5</th>
                 </tr>
             </thead>
             <tbody>
@@ -105,13 +123,15 @@
             </tbody>
         </table>
     </div>
-
+    <div class="data-box chart-container">
+        <h2>PM2.5 vs Predicted PM2.5 Trend</h2>
+        <canvas id="pm25Chart"></canvas>
+    </div>
     <script>
         // Theme handling
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         const savedTheme = localStorage.getItem('theme') || (prefersDark ? 'dark' : 'light');
         document.documentElement.setAttribute('data-theme', savedTheme);
-
         function toggleTheme() {
             const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' 
                 ? 'light' 
@@ -119,35 +139,87 @@
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
         }
-
         // Data handling
         let historicalCache = [];
-
+        let pm25Chart;
+        function initChart() {
+            const ctx = document.getElementById('pm25Chart').getContext('2d');
+            pm25Chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Actual PM2.5',
+                            data: [],
+                            borderColor: 'var(--accent)',
+                            backgroundColor: 'var(--accent)',
+                            fill: false,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Predicted PM2.5',
+                            data: [],
+                            borderColor: 'var(--secondary)',
+                            backgroundColor: 'var(--secondary)',
+                            fill: false,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Timestamp'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'PM2.5 Value'
+                            }
+                        }
+                    }
+                }
+            });
+        }
         function updateData() {
             fetch('/getdata')
                 .then(response => response.json())
                 .then(data => {
-                    // Update current value
-                    document.getElementById('aqi-value').textContent = data.current.air_quality;
+                    // Update current values
+                    document.getElementById('pm25-value').textContent = 
+                        data.current.pm25.toFixed(1);
+                    document.getElementById('predicted-pm25-value').textContent = 
+                        data.current.predicted_pm25.toFixed(1);
                     document.getElementById('last-updated').textContent = 
                         `Last updated: ${data.current.timestamp}`;
-
                     // Update historical data
                     const newEntries = data.history.filter(entry => 
                         !historicalCache.some(cached => cached.timestamp === entry.timestamp)
                     );
-                    
                     if(newEntries.length > 0) {
                         historicalCache = [...historicalCache, ...newEntries];
                         updateHistoryTable();
+                        updateChart();
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('aqi-value').textContent = 'Error';
+                    document.getElementById('pm25-value').textContent = 'Error';
+                    document.getElementById('predicted-pm25-value').textContent = 'Error';
                 });
         }
-
         function updateHistoryTable() {
             const tbody = document.querySelector('#history-table tbody');
             tbody.innerHTML = historicalCache
@@ -156,26 +228,36 @@
                 .map(entry => `
                     <tr>
                         <td>${entry.timestamp}</td>
-                        <td>${entry.value}</td>
+                        <td>${entry.pm25.toFixed(1)}</td>
+                        <td>${entry.predicted_pm25.toFixed(1)}</td>
                     </tr>
                 `).join('');
         }
-
+        function updateChart() {
+            const latestData = historicalCache.slice(-20);
+            pm25Chart.data.labels = latestData.map(d => d.timestamp);
+            pm25Chart.data.datasets[0].data = latestData.map(d => d.pm25);
+            pm25Chart.data.datasets[1].data = latestData.map(d => d.predicted_pm25);
+            pm25Chart.update();
+        }
         function clearHistory() {
             if(confirm('Clear all historical data?')) {
                 fetch('/cleardata', { method: 'POST' })
                     .then(() => {
                         historicalCache = [];
                         updateHistoryTable();
+                        pm25Chart.data.labels = [];
+                        pm25Chart.data.datasets[0].data = [];
+                        pm25Chart.data.datasets[1].data = [];
+                        pm25Chart.update();
                     });
             }
         }
-
         function downloadCSV() {
             const csvContent = "data:text/csv;charset=utf-8," 
-                + "Timestamp,Air Quality\n"
+                + "Timestamp,PM2.5,Predicted_PM2.5\n"
                 + historicalCache.map(entry => 
-                    `${entry.timestamp},${entry.value}`
+                    `${entry.timestamp},${entry.pm25},${entry.predicted_pm25}`
                 ).join('\n');
             
             const encodedUri = encodeURI(csvContent);
@@ -186,10 +268,12 @@
             link.click();
             document.body.removeChild(link);
         }
-
         // Initial setup
-        setInterval(updateData, 2000);
-        document.addEventListener('DOMContentLoaded', updateData);
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            setInterval(updateData, 2000);
+            updateData();
+        });
     </script>
 </body>
 </html>
