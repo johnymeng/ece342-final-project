@@ -19,7 +19,9 @@ const char* ssid = "meshAirsonics_R7F8_2.4G";
 const char* password = "rprmwk9899";
 const char* serverAddress = "http://10.88.111.23:10000/data";
 
-float predicted_pm25 = 0.0;  // Global variable to store the predicted PM2.5 value
+const char* emailServerAddress = "http://172.20.10.10:10000/send-email";
+
+float predicted_AQI = 0.0;  // Global variable to store the predicted PM2.5 value
 
 /*------------STRUCTS------------*/
 struct AirQualityData {
@@ -48,6 +50,15 @@ struct HomeKitCharacteristics {
   SpanCharacteristic *humidity_sens = nullptr;
 };
 
+AQIBreakpoint breakpoints[] = {
+        {0.0, 12.0, 0, 50},
+        {12.1, 35.4, 51, 100},
+        {35.5, 55.4, 101, 150},
+        {55.5, 150.4, 151, 200},
+        {150.5, 250.4, 201, 300},
+        {250.5, 500.4, 301, 500}
+    };
+
 HomeKitCharacteristics hkChars;
 AirQualityData aqData;
 
@@ -56,6 +67,7 @@ SemaphoreHandle_t dataMutex;  // Mutex for sensor data
 TaskHandle_t httpTaskHandle;
 SemaphoreHandle_t wifiMutex; // Mutex for shared resources (WiFi)
 TaskHandle_t predictionTaskHandle;
+TaskHandle_t emailTaskHandle;
 
 /*------------FUNCTION PROTOTYPES------------*/
 void homekitTask(void *pvParameters);
@@ -63,6 +75,7 @@ void sendWebsiteData(void *pvParameters);
 uint8_t getAirQualityIndex(float pm25);
 void recAQData(void *pvParameters);
 uint8_t calculateAQI(float conc, AQIBreakpoint breakpoints[], size_t size);
+void emailTask(void *pvParameters);
 
 void setup() {
   Serial.begin(115200);
@@ -122,7 +135,7 @@ void setup() {
   wifiMutex = xSemaphoreCreateMutex();
   dataMutex = xSemaphoreCreateMutex();
 
-  // Create tasks
+  //support apple homekit
   xTaskCreatePinnedToCore(
     homekitTask, 
     "HomeKit", 
@@ -133,6 +146,7 @@ void setup() {
     0
   );
 
+  //send AQI data to webstie
   xTaskCreatePinnedToCore(
     sendWebsiteData,
     "HTTP_Task",
@@ -143,6 +157,7 @@ void setup() {
     1
   );
 
+  //receive AQI data from ESP8266
   xTaskCreatePinnedToCore(
     recAQData,
     "HTTP_Task",
@@ -153,6 +168,7 @@ void setup() {
     1
   );
 
+  //predict AQI using Linear Regression
    xTaskCreatePinnedToCore(
     predictTask, 
     "PredictionTask", 
@@ -161,6 +177,17 @@ void setup() {
     1,  // Medium priority
     &predictionTaskHandle, 
     1   // Runs on core 1
+  );
+
+  //send AQI email summary every 10 mins
+  xTaskCreatePinnedToCore(
+    emailTask,
+    "EmailTask",
+    8192,
+    NULL,
+    0,  // Lowest priority
+    &emailTaskHandle,
+    1   // Core 1
   );
 
   vTaskDelete(NULL);
@@ -202,7 +229,8 @@ void predictTask(void *pvParameters) {
     Serial.printf("Predicted PM2.5: %.2f\n", prediction);
 
     // Update global variable with the predicted value
-    predicted_pm25 = prediction;
+    // predicted_AQI = prediction;
+    predicted_AQI = calculateAQI(prediction, breakpoints, sizeof(breakpoints) / sizeof(breakpoints[0]));
 
     // Update HomeKit with prediction (Optional)
     hkChars.pm25->setVal(prediction);
@@ -246,7 +274,8 @@ void sendWebsiteData(void *pvParameters) {
         float pm25 = aqData.pm25;
         float pm10 = aqData.pm10;
         float humidity = aqData.humidity;
-        float prediction = predicted_pm25;  // Get the predicted PM2.5 value
+        // float prediction = predicted_pm25;  // Get the predicted PM2.5 value
+        float prediction = predicted_AQI;
         aqData.newDataAvailable = false;
         xSemaphoreGive(dataMutex);
         
@@ -306,6 +335,51 @@ void recAQData(void *pvParameters) {
   }
 }
 
+/*------------EMAIL TASK IMPLEMENTATION------------*/
+void emailTask(void *pvParameters) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(600000));  // 10 minute interval
+
+    // Collect data safely
+    float temp, pm25, pm10, humidity, predicted;
+    xSemaphoreTake(dataMutex, portMAX_DELAY);
+    temp = aqData.temperature;
+    pm25 = aqData.pm25;
+    pm10 = aqData.pm10;
+    humidity = aqData.humidity;
+    predicted = predicted_AQI;
+    xSemaphoreGive(dataMutex);
+
+    // Prepare JSON payload
+    String payload = "{\"temperature\":" + String(temp) + 
+                    ",\"pm25\":" + String(pm25) + 
+                    ",\"pm10\":" + String(pm10) + 
+                    ",\"humidity\":" + String(humidity) + 
+                    ",\"predicted_pm25\":" + String(predicted) + "}";
+
+    // Send HTTP request
+    if(xSemaphoreTake(wifiMutex, portMAX_DELAY) == pdTRUE) {
+      if(WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        WiFiClient client;
+        
+        if(http.begin(client, emailServerAddress)) {
+          http.addHeader("Content-Type", "application/json");
+          int httpResponse = http.POST(payload);
+          
+          if(httpResponse == HTTP_CODE_OK) {
+            Serial.println("Email summary request sent successfully");
+          } else {
+            Serial.printf("Email request failed. Status: %d\n", httpResponse);
+          }
+          http.end();
+        }
+      }
+      xSemaphoreGive(wifiMutex);
+    }
+  }
+}
+
 // uint8_t getAirQualityIndex(float pm25) {
 //   if (pm25 <= 12.0) return 1;
 //   if (pm25 <= 35.4) return 2;
@@ -325,13 +399,5 @@ uint8_t calculateAQI(float conc, AQIBreakpoint breakpoints[], size_t size) {
 }
 
 uint8_t getAirQualityIndex(float pm25) {
-    AQIBreakpoint breakpoints[] = {
-        {0.0, 12.0, 0, 50},
-        {12.1, 35.4, 51, 100},
-        {35.5, 55.4, 101, 150},
-        {55.5, 150.4, 151, 200},
-        {150.5, 250.4, 201, 300},
-        {250.5, 500.4, 301, 500}
-    };
     return calculateAQI(pm25, breakpoints, sizeof(breakpoints) / sizeof(breakpoints[0]));
 }
