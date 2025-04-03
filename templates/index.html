@@ -39,10 +39,10 @@
             font-size: 2em;
             font-weight: bold;
         }
-        #pm25-value {
+        #aqi-value {
             color: var(--aqi-color);
         }
-        #predicted-pm25-value {
+        #predicted-aqi-value {
             color: var(--predicted-aqi-color);
         }
         .controls {
@@ -107,12 +107,37 @@
         <h2>Current Air Quality</h2>
         <div class="current-values">
             <div>
+                <span class="label">Temperature:</span>
+                <span class="value" id="temperature-value">0.0</span>
+                <span class="unit">°C</span>
+            </div>
+            <div>
+                <span class="label">Humidity:</span>
+                <span class="value" id="humidity-value">0.0</span>
+                <span class="unit">%</span>
+            </div>
+            <div>
+                <span class="label">PM2.5:</span>
+                <span class="value" id="pm25-value">0</span>
+                <span class="unit">μg/m³</span>
+            </div>
+            <div>
+                <span class="label">PM10:</span>
+                <span class="value" id="pm10-value">0</span>
+                <span class="unit">μg/m³</span>
+            </div>
+            <div>
+                <span class="label">CO2:</span>
+                <span class="value" id="co2-value">0</span>
+                <span class="unit">ppm</span>
+            </div>
+            <div>
                 <span class="label">AQI:</span>
-                <span class="value" id="pm25-value">0.0</span>
+                <span class="value" id="aqi-value">0</span>
             </div>
             <div>
                 <span class="label">Predicted AQI:</span>
-                <span class="value" id="predicted-pm25-value">0.0</span>
+                <span class="value" id="predicted-aqi-value">0</span>
             </div>
         </div>
         <span class="timestamp" id="last-updated">Last updated: N/A</span>
@@ -212,14 +237,28 @@
             fetch('/getdata')
                 .then(response => response.json())
                 .then(data => {
+                    // Update sensor values
+                    document.getElementById('temperature-value').textContent = 
+                        data.current.temperature.toFixed(1);
+                    document.getElementById('humidity-value').textContent = 
+                        data.current.humidity.toFixed(1);
                     document.getElementById('pm25-value').textContent = 
-                        data.current.pm25.toFixed(1);
-                    document.getElementById('predicted-pm25-value').textContent = 
-                        data.current.predicted_pm25.toFixed(1);
+                        data.current.pm25;
+                    document.getElementById('pm10-value').textContent = 
+                        data.current.pm10;
+                    document.getElementById('co2-value').textContent = 
+                        data.current.co2;
+                    
+                    // Update AQI values
+                    document.getElementById('aqi-value').textContent = 
+                        data.aqi_current.aqi;
+                    document.getElementById('predicted-aqi-value').textContent = 
+                        data.aqi_current.aqi_prediction;
+                    
                     document.getElementById('last-updated').textContent = 
                         `Last updated: ${data.current.timestamp}`;
 
-                    const newEntries = data.history.filter(entry => 
+                    const newEntries = data.aqi_history.filter(entry => 
                         !historicalCache.some(cached => cached.timestamp === entry.timestamp)
                     );
                     if(newEntries.length > 0) {
@@ -230,8 +269,8 @@
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('pm25-value').textContent = 'Error';
-                    document.getElementById('predicted-pm25-value').textContent = 'Error';
+                    document.getElementById('aqi-value').textContent = 'Error';
+                    document.getElementById('predicted-aqi-value').textContent = 'Error';
                 });
         }
 
@@ -243,8 +282,8 @@
                 .map(entry => `
                     <tr>
                         <td>${entry.timestamp}</td>
-                        <td>${entry.pm25.toFixed(1)}</td>
-                        <td>${entry.predicted_pm25.toFixed(1)}</td>
+                        <td>${entry.aqi}</td>
+                        <td>${entry.aqi_prediction}</td>
                     </tr>
                 `).join('');
         }
@@ -252,8 +291,8 @@
         function updateChart() {
             const latestData = historicalCache.slice(-20);
             pm25Chart.data.labels = latestData.map(d => d.timestamp);
-            pm25Chart.data.datasets[0].data = latestData.map(d => d.pm25);
-            pm25Chart.data.datasets[1].data = latestData.map(d => d.predicted_pm25);
+            pm25Chart.data.datasets[0].data = latestData.map(d => d.aqi);
+            pm25Chart.data.datasets[1].data = latestData.map(d => d.predict);
             pm25Chart.update();
         }
 
@@ -275,7 +314,7 @@
             const csvContent = "data:text/csv;charset=utf-8," 
                 + "Timestamp,AQI,Predicted_AQI\n"
                 + historicalCache.map(entry => 
-                    `${entry.timestamp},${entry.pm25},${entry.predicted_pm25}`
+                    `${entry.timestamp},${entry.aqi},${entry.aqi_prediction}`
                 ).join('\n');
             
             const encodedUri = encodeURI(csvContent);
