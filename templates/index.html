@@ -7,13 +7,15 @@
         :root {
             --bg-color: #f0f0f0;
             --text-color: #2c3e50;
-            --accent: #3498db;
+            --aqi-color: #e74c3c;         /* Red for actual AQI */
+            --predicted-aqi-color: #3498db; /* Blue for predicted */
             --secondary: #9b59b6;
         }
         [data-theme="dark"] {
             --bg-color: #2c3e50;
             --text-color: #ecf0f1;
-            --accent: #2ecc71;
+            --aqi-color: #e67e22;        /* Orange for actual AQI */
+            --predicted-aqi-color: #2ecc71; /* Green for predicted */
             --secondary: #8e44ad;
         }
         body { 
@@ -35,15 +37,20 @@
         }
         .value { 
             font-size: 2em;
-            color: var(--accent);
             font-weight: bold;
+        }
+        #pm25-value {
+            color: var(--aqi-color);
+        }
+        #predicted-pm25-value {
+            color: var(--predicted-aqi-color);
         }
         .controls {
             margin: 20px 0;
         }
         button {
             padding: 8px 16px;
-            background: var(--accent);
+            background: var(--aqi-color);
             color: white;
             border: none;
             border-radius: 5px;
@@ -64,7 +71,7 @@
             border-bottom: 1px solid var(--text-color);
         }
         th {
-            background: var(--accent);
+            background: var(--aqi-color);
             color: white;
         }
         .current-values {
@@ -84,6 +91,7 @@
         .chart-container {
             position: relative;
             height: 400px;
+            margin-bottom: 30px;
         }
     </style>
 </head>
@@ -94,6 +102,7 @@
         <button onclick="clearHistory()">Clear History</button>
         <button onclick="downloadCSV()">Export CSV</button>
     </div>
+    
     <div class="data-box">
         <h2>Current Air Quality</h2>
         <div class="current-values">
@@ -108,6 +117,12 @@
         </div>
         <span class="timestamp" id="last-updated">Last updated: N/A</span>
     </div>
+
+    <div class="data-box chart-container">
+        <h2>AQI vs Predicted AQI Trend</h2>
+        <canvas id="pm25Chart"></canvas>
+    </div>
+
     <div class="data-box">
         <h2>Historical Data (Newest First)</h2>
         <table id="history-table">
@@ -123,10 +138,7 @@
             </tbody>
         </table>
     </div>
-    <div class="data-box chart-container">
-        <h2>AQI vs Predicted AQI Trend</h2>
-        <canvas id="pm25Chart"></canvas>
-    </div>
+
     <script>
         // Theme handling
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -139,9 +151,11 @@
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
         }
+
         // Data handling
         let historicalCache = [];
         let pm25Chart;
+
         function initChart() {
             const ctx = document.getElementById('pm25Chart').getContext('2d');
             pm25Chart = new Chart(ctx, {
@@ -152,16 +166,16 @@
                         {
                             label: 'Actual AQI',
                             data: [],
-                            borderColor: 'var(--accent)',
-                            backgroundColor: 'var(--accent)',
+                            borderColor: 'var(--aqi-color)',
+                            backgroundColor: 'var(--aqi-color)',
                             fill: false,
                             tension: 0.1
                         },
                         {
                             label: 'Predicted AQI',
                             data: [],
-                            borderColor: 'var(--secondary)',
-                            backgroundColor: 'var(--secondary)',
+                            borderColor: 'var(--predicted-aqi-color)',
+                            backgroundColor: 'var(--predicted-aqi-color)',
                             fill: false,
                             tension: 0.1
                         }
@@ -193,18 +207,18 @@
                 }
             });
         }
+
         function updateData() {
             fetch('/getdata')
                 .then(response => response.json())
                 .then(data => {
-                    // Update current values
                     document.getElementById('pm25-value').textContent = 
                         data.current.pm25.toFixed(1);
                     document.getElementById('predicted-pm25-value').textContent = 
                         data.current.predicted_pm25.toFixed(1);
                     document.getElementById('last-updated').textContent = 
                         `Last updated: ${data.current.timestamp}`;
-                    // Update historical data
+
                     const newEntries = data.history.filter(entry => 
                         !historicalCache.some(cached => cached.timestamp === entry.timestamp)
                     );
@@ -220,6 +234,7 @@
                     document.getElementById('predicted-pm25-value').textContent = 'Error';
                 });
         }
+
         function updateHistoryTable() {
             const tbody = document.querySelector('#history-table tbody');
             tbody.innerHTML = historicalCache
@@ -233,6 +248,7 @@
                     </tr>
                 `).join('');
         }
+
         function updateChart() {
             const latestData = historicalCache.slice(-20);
             pm25Chart.data.labels = latestData.map(d => d.timestamp);
@@ -240,6 +256,7 @@
             pm25Chart.data.datasets[1].data = latestData.map(d => d.predicted_pm25);
             pm25Chart.update();
         }
+
         function clearHistory() {
             if(confirm('Clear all historical data?')) {
                 fetch('/cleardata', { method: 'POST' })
@@ -253,6 +270,7 @@
                     });
             }
         }
+
         function downloadCSV() {
             const csvContent = "data:text/csv;charset=utf-8," 
                 + "Timestamp,AQI,Predicted_AQI\n"
@@ -268,6 +286,7 @@
             link.click();
             document.body.removeChild(link);
         }
+
         // Initial setup
         document.addEventListener('DOMContentLoaded', () => {
             initChart();
