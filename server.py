@@ -12,7 +12,8 @@ sensor_data = {
     'pm10': 0.0,
     'humidity': 0.0,
     'predicted_pm25': 0.0,
-    'timestamp': 'N/A'
+    'timestamp': 'N/A',
+    'co2': 0.0,
 }
 
 historical_data = []
@@ -25,27 +26,32 @@ def index():
 @app.route('/data', methods=['POST'])
 def handle_data():
     try:
-        data = request.get_json()
+        raw_data = request.get_data(as_text=True)
+        values = raw_data.strip().split(',')
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         with lock:
-            # Use .get() with defaults to prevent KeyError
-            sensor_data['temperature'] = data.get('temperature', 0.0)
-            sensor_data['pm25'] = data.get('pm25', 0.0)
-            sensor_data['pm10'] = data.get('pm10', 0.0)
-            sensor_data['humidity'] = data.get('humidity', 0.0)
-            sensor_data['predicted_pm25'] = data.get('predicted_pm25', 0.0)
-            sensor_data['timestamp'] = timestamp
-            
-            historical_data.append({
-                'temperature': sensor_data['temperature'],
-                'pm25': sensor_data['pm25'],
-                'pm10': sensor_data['pm10'],
-                'humidity': sensor_data['humidity'],
-                'predicted_pm25': sensor_data['predicted_pm25'],
-                'timestamp': timestamp
-            })
-        
+            try:
+                sensor_data['temperature'] = float(values[0]) if len(values) > 0 else 0.0
+                sensor_data['pm25'] = int(values[1]) if len(values) > 1 else 0
+                sensor_data['pm10'] = int(values[2]) if len(values) > 2 else 0
+                sensor_data['humidity'] = float(values[3]) if len(values) > 3 else 0.0
+                sensor_data['co2'] = int(values[4]) if len(values) > 4 else 0
+                sensor_data['predicted_pm25'] = 0.0
+                sensor_data['timestamp'] = timestamp
+
+                historical_data.append({
+                    'temperature': sensor_data['temperature'],
+                    'pm25': sensor_data['pm25'],
+                    'pm10': sensor_data['pm10'],
+                    'humidity': sensor_data['humidity'],
+                    'co2': sensor_data['co2'],
+                    'predicted_pm25': sensor_data['predicted_pm25'],
+                    'timestamp': timestamp
+                })
+            except (ValueError, IndexError) as e:
+                print(f"Error parsing values: {str(e)}, raw data: {raw_data}")
+
         return jsonify(success=True), 200
     except Exception as e:
         print(f"Error: {str(e)}")  # Add debug print
@@ -58,6 +64,12 @@ def get_data():
             'current': sensor_data,
             'history': historical_data[-50:]  # Keep last 50 entries
         })
+
+@app.route('/getonedata')
+def get_one_data():
+    with lock:
+        response = f"{sensor_data['temperature']},{sensor_data['pm25']},{sensor_data['pm10']},{sensor_data['humidity']},{sensor_data['co2']}"
+        return response, 200, {'Content-Type': 'text/plain'}
 
 @app.route('/cleardata', methods=['POST'])
 def clear_data():
