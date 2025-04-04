@@ -2,9 +2,12 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 import threading
 from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 CORS(app)
+
+toronto_tz = pytz.timezone('America/Toronto')
 
 sensor_data = {
     'temperature': 0.0,
@@ -33,7 +36,7 @@ def handle_data():
     try:
         raw_data = request.get_data(as_text=True)
         values = raw_data.strip().split(',')
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(toronto_tz).strftime("%Y-%m-%d %H:%M:%S")
 
         with lock:
             try:
@@ -74,7 +77,7 @@ def update_aqi():
                 historical_aqi.append({
                     'aqi': aqi_data['aqi'],
                     'aqi_prediction': aqi_data['aqi_prediction'],
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    'timestamp': datetime.now(toronto_tz).strftime("%Y-%m-%d %H:%M:%S")
                 })
             except (ValueError, IndexError) as e:
                 print(f"Error parsing values: {str(e)}, raw data: {raw_data}")
