@@ -20,6 +20,12 @@
 #define LEDC_RESOLUTION 8  
 #define LEDC_FREQ 25000    
 
+// Add these near your other global variables
+unsigned long cpuActiveTime = 0;        // Total CPU active time (ms)
+unsigned long wifiActiveTime = 0;       // Total Wi-Fi active time (ms)
+unsigned long lastLogTime = 0;          // Last log timestamp
+SemaphoreHandle_t timeMutex;            // Mutex for time variables
+
 DacESP32 dac1(DAC_CHAN_0);
 
 /*------------GLOBAL VARIABLES------------*/
@@ -98,6 +104,20 @@ uint8_t calculateAQI(float conc, AQIBreakpoint breakpoints[], size_t size);
 void emailTask(void *pvParameters);
 void fanControlTask(void *pvParameters);
 
+void logUsage() {
+  if (millis() - lastLogTime >= 60000) {  // Log every 1 minute
+    xSemaphoreTake(timeMutex, portMAX_DELAY);
+    Serial.printf("[POWER] CPU Active: %.1f%%, Wi-Fi Active: %.1f%%\n",
+      (cpuActiveTime / 60000.0) * 100,  // % of 60s
+      (wifiActiveTime / 60000.0) * 100
+    );
+    cpuActiveTime = 0;  // Reset counters
+    wifiActiveTime = 0;
+    lastLogTime = millis();
+    xSemaphoreGive(timeMutex);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -135,6 +155,8 @@ void setup() {
   pinMode(FAN_PIN_2, OUTPUT);
   digitalWrite(FAN_PIN, LOW);
   digitalWrite(FAN_PIN_2, HIGH);
+
+  timeMutex = xSemaphoreCreateMutex();
   
   //set up Homespan
   homeSpan.setPairingCode("11122333");
@@ -256,15 +278,15 @@ void setup() {
     1   
   );
 
-   xTaskCreatePinnedToCore(
-    fanControlTask,
-    "FanControl",
-    4096,
-    NULL,
-    1,   
-    NULL,
-    1     
-  );
+  //  xTaskCreatePinnedToCore(
+  //   fanControlTask,
+  //   "FanControl",
+  //   4096,
+  //   NULL,
+  //   1,   
+  //   NULL,
+  //   1     
+  // );
 
   vTaskDelete(NULL);
 }
@@ -333,6 +355,7 @@ void loop() {
 //poll and update homekit widgets
 void homekitTask(void *pvParameters) {
   for(;;) {
+    unsigned long startTime = millis();
     homeSpan.poll();
     wifi_delay++;
 
@@ -357,6 +380,12 @@ void homekitTask(void *pvParameters) {
     }
     xSemaphoreGive(dataMutex);
 
+    xSemaphoreTake(timeMutex, portMAX_DELAY);
+    wifiActiveTime += millis() - startTime;
+    cpuActiveTime += millis() - startTime;
+    xSemaphoreGive(timeMutex);
+     logUsage();
+
     vTaskDelay(1);
   }
 }
@@ -364,6 +393,7 @@ void homekitTask(void *pvParameters) {
 //send air quality data to website
 void sendWebsiteData(void *pvParameters) {
   for(;;) {
+    unsigned long wifiStart = millis();
     if(xSemaphoreTake(wifiMutex, portMAX_DELAY) == pdTRUE) {
       if(WiFi.status() == WL_CONNECTED && wifi_delay > 10000) {
         xSemaphoreTake(dataMutex, portMAX_DELAY);
@@ -394,6 +424,9 @@ void sendWebsiteData(void *pvParameters) {
       }      
       xSemaphoreGive(wifiMutex);
     }
+     logUsage();  // Add this line to periodically log usage
+     wifiActiveTime += millis() - wifiStart;
+     cpuActiveTime += millis() - wifiStart;
     vTaskDelay(pdMS_TO_TICKS(5000));  // 5-second interval
   }
 }
@@ -401,6 +434,7 @@ void sendWebsiteData(void *pvParameters) {
 //receive AQI data from ESP8266
 void recAQData(void *pvParameters) {
   for(;;) {
+    unsigned long wifiStart = millis();
     if(xSemaphoreTake(wifiMutex, portMAX_DELAY) == pdTRUE) {
       if(WiFi.status() == WL_CONNECTED && wifi_delay > 10000) {
         HTTPClient http;
@@ -434,12 +468,15 @@ void recAQData(void *pvParameters) {
       }
       xSemaphoreGive(wifiMutex);
     }
+    wifiActiveTime += millis() - wifiStart;
+    cpuActiveTime += millis() - wifiStart;
     vTaskDelay(pdMS_TO_TICKS(3000));
   }
 }
 
 //email user AQI summary every 10 minutes
 void emailTask(void *pvParameters) {
+  unsigned long wifiStart = millis();
   SMTPSession smtp;
   Session_Config config;
 
@@ -492,6 +529,9 @@ void emailTask(void *pvParameters) {
       Serial.println("Email sent successfully!");
     }
   }
+  wifiActiveTime += millis() - wifiStart;
+  cpuActiveTime += millis() - wifiStart;
+   logUsage();
 }
 
 //calculate the AQI using standard formula 
