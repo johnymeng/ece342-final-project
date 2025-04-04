@@ -73,7 +73,7 @@ def update_aqi():
 
                 historical_aqi.append({
                     'aqi': aqi_data['aqi'],
-                    'predict': aqi_data['aqi_prediction'],
+                    'aqi_prediction': aqi_data['aqi_prediction'],
                     'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
             except (ValueError, IndexError) as e:

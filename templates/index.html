@@ -182,6 +182,10 @@
         let pm25Chart;
 
         function initChart() {
+            const rootStyles = getComputedStyle(document.documentElement);
+            const aqiColor = rootStyles.getPropertyValue('--aqi-color').trim();
+            const predictedAqiColor = rootStyles.getPropertyValue('--predicted-aqi-color').trim();
+
             const ctx = document.getElementById('pm25Chart').getContext('2d');
             pm25Chart = new Chart(ctx, {
                 type: 'line',
@@ -191,16 +195,16 @@
                         {
                             label: 'Actual AQI',
                             data: [],
-                            borderColor: 'var(--aqi-color)',
-                            backgroundColor: 'var(--aqi-color)',
+                            borderColor: aqiColor,
+                            backgroundColor: aqiColor,
                             fill: false,
                             tension: 0.1
                         },
                         {
                             label: 'Predicted AQI',
                             data: [],
-                            borderColor: 'var(--predicted-aqi-color)',
-                            backgroundColor: 'var(--predicted-aqi-color)',
+                            borderColor: predictedAqiColor,
+                            backgroundColor: predictedAqiColor,
                             fill: false,
                             tension: 0.1
                         }
@@ -292,7 +296,7 @@
             const latestData = historicalCache.slice(-20);
             pm25Chart.data.labels = latestData.map(d => d.timestamp);
             pm25Chart.data.datasets[0].data = latestData.map(d => d.aqi);
-            pm25Chart.data.datasets[1].data = latestData.map(d => d.predict);
+            pm25Chart.data.datasets[1].data = latestData.map(d => d.aqi_prediction);
             pm25Chart.update();
         }
 
